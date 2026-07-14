@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IT Project Tracker — Casco</title>
+<link rel="icon" type="image/png" href="img/casco-icon.png">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<!-- Sidebar toggle: fixed to the viewport, outside <nav>, so it never
+     gets clipped away when the sidebar itself collapses to 0 width. -->
+<button class="sb-toggle" id="sbToggle" onclick="toggleSidebar()" title="Hide sidebar">✕</button>
+
+<!-- SIDEBAR -->
+<nav class="sidebar">
+  <div class="logo-wrap">
+    <div class="logo-badge"><img src="img/casco-logo.jpg" alt="Casco — An Amphenol Company" class="logo-img"></div>
+    <div class="logo-tag">IT Project Tracker</div>
+  </div>
+  <div class="sb-sec">
+    <div class="sb-lbl">Projects</div>
+    <div class="proj-list" id="projList"></div>
+  </div>
+  <div class="sb-bot">
+    <button class="btn" onclick="document.getElementById('fileInput').click()" style="width:100%;justify-content:center;" title="Upload Excel"><span class="ico">📤</span><span class="lbl"> Upload Excel</span></button>
+    <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" onchange="handleFile(event)" multiple>
+    <button class="btn" onclick="openExportModal()" style="width:100%;justify-content:center;" title="Export Dashboard"><span class="ico">⬇</span><span class="lbl"> Export Dashboard</span></button>
+  </div>
+</nav>
+
+<!-- MAIN -->
+<main class="main">
+  <div class="topbar">
+    <div class="pg-title" id="pgTitle">IT Project Tracker</div>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <div class="sw-wrap">
+        <span class="sw-ico">🔍</span>
+        <input type="text" id="searchInput" placeholder="Search tasks…" style="width:180px;" oninput="applyFilters()">
+      </div>
+      <button class="theme-btn" onclick="toggleTheme()" id="themeBtn">🌙</button>
+    </div>
+  </div>
+
+  <div class="content">
+    <!-- UPLOAD -->
+    <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()" ondragover="dragOver(event)" ondragleave="dragLeave(event)" ondrop="dropFile(event)">
+      <div class="upload-icon">📊</div>
+      <div class="upload-title">Drop your Excel file here</div>
+      <div class="upload-sub">Auto-detects Task / Risks / Issues sheets by name (falls back to the first sheet) · supports multiple files</div>
+      <div class="fmt-badges"><span class="fmt-badge">.xlsx</span><span class="fmt-badge">.xls</span><span class="fmt-badge">.csv</span><span class="fmt-badge">Multi-file</span></div>
+      <div class="sample-lnk"><a onclick="event.stopPropagation();loadSample()">Load sample data</a> to preview the dashboard</div>
+    </div>
+
+    <!-- DASHBOARD -->
+    <div id="dashboard" style="display:none;flex-direction:column;gap:18px;">
+
+      <!-- ALERTS -->
+      <div id="alertsSec" style="display:none;">
+        <div class="alerts-hdr">
+          <div class="sec-title">⚡ Smart Insights</div>
+          <button class="btn btn-sm" onclick="document.getElementById('alertsSec').style.display='none'">✕ Dismiss</button>
+        </div>
+        <div class="alerts-list" id="alertsList"></div>
+      </div>
+
+      <!-- FILTERS -->
+      <div class="filters-bar">
+        <span style="font-size:10px;font-weight:800;color:var(--blue);letter-spacing:.6px;">FILTER</span>
+        <div class="fsep"></div>
+        <label class="fl">Status</label>
+        <select id="fStatus" onchange="applyFilters()">
+          <option value="">All</option>
+          <option value="complete">Complete</option>
+          <option value="in progress">In Progress</option>
+          <option value="pending">Pending</option>
+          <option value="delayed">Delayed</option>
+          <option value="cancelled">Cancelled</option>
+        </select>
+        <label class="fl">Priority</label>
+        <select id="fPriority" onchange="applyFilters()">
+          <option value="">All</option>
+          <option value="high">High</option>
+          <option value="medium">Medium</option>
+          <option value="low">Low</option>
+        </select>
+        <label class="fl">Assignee</label>
+        <select id="fAssignee" onchange="applyFilters()"></select>
+        <label class="fl">Phase</label>
+        <select id="fPhase" onchange="applyFilters()"></select>
+        <div class="fsep"></div>
+        <div class="active-chips" id="activeChips"></div>
+        <button class="btn btn-sm" onclick="clearFilters()" style="margin-left:auto;">↺ Reset</button>
+      </div>
+
+      <!-- KPI CARDS (clickable to filter) -->
+      <div class="kpi-grid" id="kpiGrid"></div>
+
+      <!-- CHARTS ROW 1 -->
+      <div class="charts-grid">
+        <div class="chart-card">
+          <div class="chart-title">Task Status Distribution</div>
+          <div class="chart-sub">All tasks by current status — click a KPI card above to filter</div>
+          <div class="clegend" id="statusLegend"></div>
+          <div class="chart-wrap" style="height:210px;"><canvas id="statusChart" role="img" aria-label="Status doughnut">Status breakdown.</canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">Priority Breakdown</div>
+          <div class="chart-sub">Task count by priority level</div>
+          <div class="chart-wrap" style="height:240px;"><canvas id="priorityChart" role="img" aria-label="Priority bar">Priority distribution.</canvas></div>
+        </div>
+      </div>
+
+      <!-- CHARTS ROW 2 -->
+      <div class="charts-grid">
+        <div class="chart-card">
+          <div class="chart-title">Completion % by Phase</div>
+          <div class="chart-sub">Average completion per project phase</div>
+          <div class="chart-wrap" id="phaseWrap" style="height:220px;"><canvas id="phaseChart" role="img" aria-label="Phase completion">Phase completion.</canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">Workload by Assignee</div>
+          <div class="chart-sub">Number of tasks assigned per person</div>
+          <div class="chart-wrap" id="assigneeWrap" style="height:220px;"><canvas id="assigneeChart" role="img" aria-label="Assignee workload">Workload.</canvas></div>
+        </div>
+      </div>
+
+      <!-- COMPLETION TREND by PROJECT -->
+      <div class="chart-card">
+        <div class="chart-title">Completion Trend by Project</div>
+        <div class="chart-sub">Average task completion % per project with target line at 100%</div>
+        <div class="chart-wrap" style="height:200px;"><canvas id="trendChart" role="img" aria-label="Completion trend">Trend.</canvas></div>
+      </div>
+
+      <!-- TASK TIMELINE -->
+      <div class="chart-card">
+        <div class="chart-title">Task Timeline</div>
+        <div class="chart-sub">Per-task start → due date with completion bar (sorted by due date)</div>
+        <div class="tl-wrap">
+          <table class="tl-tbl" id="timelineTable">
+            <colgroup id="timelineColgroup">
+              <col data-key="task"><col data-key="assignee"><col data-key="phase">
+              <col data-key="start"><col data-key="due"><col data-key="status"><col data-key="progress">
+            </colgroup>
+            <thead><tr>
+              <th>Task<span class="col-resizer" onmousedown="startColResizeNS(event,'timeline','task')" onclick="event.stopPropagation()"></span></th>
+              <th>Assignee<span class="col-resizer" onmousedown="startColResizeNS(event,'timeline','assignee')" onclick="event.stopPropagation()"></span></th>
+              <th>Phase<span class="col-resizer" onmousedown="startColResizeNS(event,'timeline','phase')" onclick="event.stopPropagation()"></span></th>
+              <th>Start<span class="col-resizer" onmousedown="startColResizeNS(event,'timeline','start')" onclick="event.stopPropagation()"></span></th>
+              <th>Due<span class="col-resizer" onmousedown="startColResizeNS(event,'timeline','due')" onclick="event.stopPropagation()"></span></th>
+              <th>Status<span class="col-resizer" onmousedown="startColResizeNS(event,'timeline','status')" onclick="event.stopPropagation()"></span></th>
+              <th>Progress<span class="col-resizer" onmousedown="startColResizeNS(event,'timeline','progress')" onclick="event.stopPropagation()"></span></th>
+            </tr></thead>
+            <tbody id="timelineBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- RISKS & ISSUES (from uploaded Risks / Issues sheets) -->
+      <div id="riSec" style="display:none;flex-direction:column;gap:16px;">
+        <div class="sec-title">🛡️ Risks &amp; Issues</div>
+        <div class="ri-grid">
+          <div class="ri-card">
+            <div class="ri-hdr">
+              <div class="chart-title">Risks</div>
+              <div class="ri-count" id="risksCount">0 risks</div>
+            </div>
+            <div class="ri-scroll">
+              <table class="ritbl" id="risksTable">
+                <colgroup id="risksColgroup">
+                  <col data-key="id"><col data-key="description"><col data-key="project"><col data-key="probability">
+                  <col data-key="impact"><col data-key="level"><col data-key="mitigation"><col data-key="owner">
+                </colgroup>
+                <thead><tr>
+                  <th>ID<span class="col-resizer" onmousedown="startColResizeNS(event,'risks','id')" onclick="event.stopPropagation()"></span></th>
+                  <th>Description<span class="col-resizer" onmousedown="startColResizeNS(event,'risks','description')" onclick="event.stopPropagation()"></span></th>
+                  <th>Project<span class="col-resizer" onmousedown="startColResizeNS(event,'risks','project')" onclick="event.stopPropagation()"></span></th>
+                  <th>Prob.<span class="col-resizer" onmousedown="startColResizeNS(event,'risks','probability')" onclick="event.stopPropagation()"></span></th>
+                  <th>Impact<span class="col-resizer" onmousedown="startColResizeNS(event,'risks','impact')" onclick="event.stopPropagation()"></span></th>
+                  <th>Level<span class="col-resizer" onmousedown="startColResizeNS(event,'risks','level')" onclick="event.stopPropagation()"></span></th>
+                  <th>Mitigation<span class="col-resizer" onmousedown="startColResizeNS(event,'risks','mitigation')" onclick="event.stopPropagation()"></span></th>
+                  <th>Owner<span class="col-resizer" onmousedown="startColResizeNS(event,'risks','owner')" onclick="event.stopPropagation()"></span></th>
+                </tr></thead>
+                <tbody id="risksBody"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="ri-card">
+            <div class="ri-hdr">
+              <div class="chart-title">Issues</div>
+              <div class="ri-count" id="issuesCount">0 issues</div>
+            </div>
+            <div class="ri-scroll">
+              <table class="ritbl" id="issuesTable">
+                <colgroup id="issuesColgroup">
+                  <col data-key="id"><col data-key="description"><col data-key="project"><col data-key="priority">
+                  <col data-key="impact"><col data-key="owner"><col data-key="assignee"><col data-key="due"><col data-key="status">
+                </colgroup>
+                <thead><tr>
+                  <th>ID<span class="col-resizer" onmousedown="startColResizeNS(event,'issues','id')" onclick="event.stopPropagation()"></span></th>
+                  <th>Description<span class="col-resizer" onmousedown="startColResizeNS(event,'issues','description')" onclick="event.stopPropagation()"></span></th>
+                  <th>Project<span class="col-resizer" onmousedown="startColResizeNS(event,'issues','project')" onclick="event.stopPropagation()"></span></th>
+                  <th>Priority<span class="col-resizer" onmousedown="startColResizeNS(event,'issues','priority')" onclick="event.stopPropagation()"></span></th>
+                  <th>Impact<span class="col-resizer" onmousedown="startColResizeNS(event,'issues','impact')" onclick="event.stopPropagation()"></span></th>
+                  <th>Owner<span class="col-resizer" onmousedown="startColResizeNS(event,'issues','owner')" onclick="event.stopPropagation()"></span></th>
+                  <th>Assigned To<span class="col-resizer" onmousedown="startColResizeNS(event,'issues','assignee')" onclick="event.stopPropagation()"></span></th>
+                  <th>Due<span class="col-resizer" onmousedown="startColResizeNS(event,'issues','due')" onclick="event.stopPropagation()"></span></th>
+                  <th>Status<span class="col-resizer" onmousedown="startColResizeNS(event,'issues','status')" onclick="event.stopPropagation()"></span></th>
+                </tr></thead>
+                <tbody id="issuesBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TASK DETAILS TABLE (resizable columns) -->
+      <div class="table-card">
+        <div class="table-hdr">
+          <div>
+            <div class="chart-title">Task Details</div>
+            <div class="chart-sub" style="margin-bottom:0" id="tblSub">All tasks</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <span style="font-size:10px;color:var(--t3);">Drag a column edge to resize ↔</span>
+            <select id="rowsPg" onchange="renderTable()" style="font-size:11px;">
+              <option value="10">10 rows</option>
+              <option value="25">25 rows</option>
+              <option value="50">50 rows</option>
+              <option value="999">All</option>
+            </select>
+          </div>
+        </div>
+        <div style="overflow-x:auto;">
+          <table class="dtbl" id="taskTable">
+            <colgroup id="taskColgroup"></colgroup>
+            <thead><tr id="tblHead"></tr></thead>
+            <tbody id="tblBody"></tbody>
+          </table>
+        </div>
+        <div class="pagination" id="pagination"></div>
+      </div>
+
+    </div>
+  </div>
+</main>
+
+<!-- EXPORT MODAL -->
+<div class="moverlay" id="exportModal">
+  <div class="modal" style="width:400px;">
+    <div class="modal-title">Export Dashboard</div>
+    <div class="modal-sub">Choose export format</div>
+    <div class="export-opts">
+      <div class="export-opt" onclick="doExport('pdf')"><div class="eoi">📑</div><div><div class="eon">PDF Document</div><div class="eod">Full dashboard as printable PDF</div></div></div>
+      <div class="export-opt" onclick="doExport('png')"><div class="eoi">🖼️</div><div><div class="eon">PNG Image</div><div class="eod">High-resolution screenshot of the dashboard</div></div></div>
+      <div class="export-opt" onclick="doExport('csv')"><div class="eoi">📄</div><div><div class="eon">CSV Spreadsheet</div><div class="eod">All task data for Excel / Google Sheets</div></div></div>
+      <div class="export-opt" onclick="doExport('xlsx')"><div class="eoi">📊</div><div><div class="eon">Excel Workbook (.xlsx)</div><div class="eod">Tasks, plus Risks &amp; Issues sheets if present</div></div></div>
+    </div>
+    <div class="mactn"><button class="btn" onclick="closeModal('exportModal')">Cancel</button></div>
+  </div>
+</div>
+
+<!-- CONFIRM DELETE MODAL -->
+<div class="moverlay" id="confirmModal">
+  <div class="modal confirm-modal">
+    <div class="modal-title">Remove Project</div>
+    <div class="confirm-msg" id="confirmMsg"></div>
+    <div class="mactn">
+      <button class="btn" onclick="closeModal('confirmModal')">Cancel</button>
+      <button class="btn btn-danger" onclick="confirmDelete()">Remove</button>
+    </div>
+  </div>
+</div>
+
+<!-- TASK DETAIL MODAL (status click) -->
+<div class="moverlay" id="detailModal">
+  <div class="modal dmodal">
+    <div class="dmodal-hdr">
+      <div class="dmodal-title" id="detailTitle">Tasks</div>
+      <button class="btn btn-sm" onclick="closeModal('detailModal')">✕ Close</button>
+    </div>
+    <div class="dmodal-body" id="detailBody"></div>
+  </div>
+</div>
+
+<!-- EXPORT OVERLAY -->
+<div class="exp-overlay" id="expOverlay">
+  <div class="exp-spin"></div>
+  <div class="exp-msg" id="expMsg">Generating…</div>
+</div>
+
+<!-- ═══════════ MODULAR JS (load order matters) ═══════════ -->
+<script src="js/config.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/parser.js"></script>
+<script src="js/sidebar.js"></script>
+<script src="js/filters.js"></script>
+<script src="js/risks-issues.js"></script>
+<script src="js/kpi-alerts.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/table.js"></script>
+<script src="js/export-theme-modal.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
